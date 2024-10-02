@@ -1,0 +1,42 @@
+config {
+    type: "incremental",
+    schema: "mart",
+    name: "analyzed_messages_sentiment",
+    uniqueKey: ["ts", "user_id", "channel_id", "text"]
+}
+
+WITH
+  RankedMessages AS (
+  SELECT
+    ts,
+    user_id,
+    user_name,
+    text,
+    reactions_concatenated,
+    channel_id,
+    channel_name,
+    document_sentiment_score,
+    document_sentiment_magnitude,
+    LENGTH(reactions_concatenated) AS reactions_length,
+    ROW_NUMBER() OVER (PARTITION BY ts, user_id, text, channel_id ORDER BY LENGTH(reactions_concatenated) DESC ) AS rank
+  FROM
+    ${ref('dwh', 'messages')} )
+SELECT
+  ts,
+  user_id,
+  user_name,
+  text,
+  reactions_concatenated,
+  channel_id,
+  channel_name,
+  document_sentiment_score,
+  document_sentiment_magnitude
+FROM
+  RankedMessages
+WHERE
+  rank = 1
+ORDER BY
+  ts,
+  user_id,
+  text,
+  channel_id

@@ -1,0 +1,27 @@
+config {
+    type: "operations"
+}
+
+EXPORT DATA
+  OPTIONS ( uri='gs://${dataform.projectConfig.vars.bucket_name}/${dataform.projectConfig.vars.export_path}/*.csv',
+    format='CSV',
+    OVERWRITE=TRUE ) AS
+SELECT
+  DISTINCT m.ts,
+  u.slack_user_name AS user_name,
+  m.text,
+  m.reactions_concatenated,
+  c.channel_name
+FROM
+  ${ref('dwh', 'messages')} AS m
+INNER JOIN
+  ${ref('lake', 'channel')} AS c
+ON
+  m.channel_id = c.channel_id
+INNER JOIN
+  ${ref('lake', 'user')} AS u
+ON
+  m.user_id = u.slack_user_id
+WHERE
+  ('${dataform.projectConfig.vars.job_id}' = 'ALL'
+    OR m.job_id = '${dataform.projectConfig.vars.job_id}')

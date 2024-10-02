@@ -1,0 +1,63 @@
+config {
+    type: "incremental",
+    schema: "dwh",
+    name: "messages",
+    uniqueKey: ["job_id", "ts", "user_id", "user_name", "team", "text", "reactions_concatenated", "channel_id", "channel_name"]
+}
+
+WITH
+  -- メッセージとユーザー、チャネルのデータを結合
+  joined_data AS (
+  SELECT
+    m.job_id,
+    m.ts,
+    m.user_id,
+    u.slack_user_name AS user_name,
+    m.team,
+    m.text,
+    m.reactions_concatenated,
+    m.channel_id,
+    c.channel_name
+  FROM
+    ${ref('lake', 'messages')} AS m
+  INNER JOIN
+    ${ref('lake', 'channel')} AS c
+  ON
+    m.channel_id = c.channel_id
+  INNER JOIN
+    ${ref('lake', 'user')} AS u
+  ON
+    m.user_id = u.slack_user_id
+  WHERE
+    -- job_idが外部から渡されている場合のみ絞り込み、渡されていない場合は全件
+    ("${dataform.projectConfig.vars.job_id}" = "ALL"
+      OR m.job_id = "${dataform.projectConfig.vars.job_id}") ),
+  -- 感情分析の実行
+  analyzed_sentiment AS (
+  SELECT
+    jd.*,
+    CAST(JSON_EXTRACT_SCALAR(t.ml_understand_text_result, '$.document_sentiment.score') AS FLOAT64) AS document_sentiment_score,
+    CAST(JSON_EXTRACT_SCALAR(t.ml_understand_text_result, '$.document_sentiment.magnitude') AS FLOAT64) AS document_sentiment_magnitude
+  FROM
+    joined_data AS jd
+  JOIN (
+    SELECT
+      text_content,
+      ml_understand_text_result
+    FROM
+      ML.UNDERSTAND_TEXT( MODEL `"${dataform.projectConfig.defaultProject}".nlp_analysis.nlp`,
+        (
+        SELECT
+          text AS text_content
+        FROM
+          joined_data),
+        STRUCT('ANALYZE_SENTIMENT' AS nlu_option) ) ) AS t
+  ON
+    jd.text = t.text_content )
+  -- 重複が発生しないようにデータを直接インクリメンタルで保存
+SELECT
+  DISTINCT *
+FROM
+  analyzed_sentiment
+WHERE
+  text IS NOT NULL

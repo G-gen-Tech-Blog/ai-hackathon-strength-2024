@@ -1,0 +1,7 @@
+config {
+  type: "declaration",
+  schema: "lake"
+}
+
+// テーブルの定義を宣言
+DECLARE TABLE messages;
